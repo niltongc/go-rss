@@ -1,56 +1,29 @@
 package main
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
+	"github.com/niltongc/rssagg/handlers"
+	database "github.com/niltongc/rssagg/internal/database"
+
+	_ "github.com/lib/pq"
 )
 
-func handlerErr(w http.ResponseWriter, r *http.Request) {
-	respondWithJSON(w, 400, "Something went wrong")
-}
-
-func handlerReadiness(w http.ResponseWriter, r *http.Request) {
-	respondWithJSON(w, 200, struct{}{})
-}
-
-func respondWithError(w http.ResponseWriter, code int, msg string) {
-	if code > 499 {
-		log.Println("Responding with 5XX error: ", msg)
-	}
-
-	type errResponse struct {
-		Error string `json:"error"`
-	}
-
-	respondWithJSON(w, code, errResponse{
-		Error: msg,
-	})
-}
-
-func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
-
-	dat, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Failed to marshal JSON response: %v", payload)
-		w.WriteHeader(500)
-		return
-	}
-
-	w.Header().Add("Content-Type", "application/json")
-	w.WriteHeader(code)
-	w.Write(dat)
-
-}
-
 func main() {
-	fmt.Println("Hello World")
+
+	feed, err := handlers.UrlToFeed("https://wagslane.dev/index.xml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(feed)
 
 	godotenv.Load(".env")
 
@@ -58,6 +31,24 @@ func main() {
 	if port == "" {
 		log.Fatal("Port is not found in the environment")
 	}
+
+	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		log.Fatal("DB_URL is not found in the environment")
+	}
+
+	conn, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	db := database.New(conn)
+
+	apiCfg := handlers.ApiConfig{
+		DB: db,
+	}
+
+	go handlers.StartScraping(db, 10, time.Minute)
 
 	router := chi.NewRouter()
 
@@ -72,8 +63,17 @@ func main() {
 
 	v1Router := chi.NewRouter()
 
-	v1Router.Get("/healthz", handlerReadiness)
-	v1Router.Get("/err", handlerErr)
+	v1Router.Get("/healthz", handlers.HandlerReadiness)
+	v1Router.Get("/err", handlers.HandlerErr)
+	v1Router.Post("/users", apiCfg.HandlerUsersCreate)
+	v1Router.Get("/users", apiCfg.MiddlewareAuth(apiCfg.HandlerGetUser))
+
+	v1Router.Post("/feeds", apiCfg.MiddlewareAuth(apiCfg.HandlerCreateFeed))
+	v1Router.Get("/feeds", apiCfg.HandlerGetFeeds)
+
+	v1Router.Post("/feed_follows", apiCfg.MiddlewareAuth(apiCfg.HandlerCreateFeedFollow))
+	v1Router.Get("/feed_follows", apiCfg.MiddlewareAuth(apiCfg.HandlerGetFeedFollow))
+	v1Router.Delete("/feed_follows/{feedFollowID}", apiCfg.MiddlewareAuth(apiCfg.HandlerDeleteFeedFollow))
 
 	router.Mount("/v1", v1Router)
 
@@ -83,7 +83,7 @@ func main() {
 	}
 
 	log.Printf("Server starting on port %v", port)
-	err := srv.ListenAndServe()
+	err = srv.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}

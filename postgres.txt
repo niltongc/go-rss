@@ -1,0 +1,7 @@
+postgres
+
+goose postgres "postgres://postgres:123@192.168.3.43:5432/rssagg?sslmode=disable" up
+
+\l lista databases
+\c connect database
+\dt show tables

@@ -80,3 +80,55 @@ func DatabaseFeedFollowsToFeedFollows(dbFeedFollows []database.FeedsFollow) []Fe
 
 	return feedfollows
 }
+
+type Post struct {
+	ID          uuid.UUID     `json:"id"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
+	Title       string        `json:"title"`
+	Url         string        `json:"url"`
+	Description *string       `json:"description"`
+	PublishedAt time.Time     `json:"published_at"`
+	FeedID      uuid.NullUUID `json:"feed_id"`
+}
+
+func databasePostToPost(dbPost database.Post) Post {
+	var description *string
+
+	if dbPost.Description.Valid {
+		description = &dbPost.Description.String
+	}
+
+	return Post{
+		ID:          dbPost.ID,
+		CreatedAt:   dbPost.CreatedAt,
+		UpdatedAt:   dbPost.UpdatedAt,
+		Title:       dbPost.Title,
+		Url:         dbPost.Url,
+		Description: description,
+		PublishedAt: dbPost.PublishedAt,
+		FeedID:      dbPost.FeedID,
+	}
+}
+
+func DatabasePostsToPosts(posts []database.Post) []Post {
+	result := make([]Post, len(posts))
+	for i, post := range posts {
+		result[i] = databasePostToPost(post)
+	}
+	return result
+}
+
+// func NullTimeToTimePtr(t sql.NullTime) *time.Time {
+// 	if t.Valid {
+// 		return &t.Time
+// 	}
+// 	return nil
+// }
+
+// func NullStringToStringPtr(s sql.NullString) *string {
+// 	if s.Valid {
+// 		return &s.String
+// 	}
+// 	return nil
+// }
